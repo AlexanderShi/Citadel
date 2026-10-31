@@ -454,12 +454,14 @@ def _markdown_sections(text: str, title: str) -> tuple[_Section, ...]:
 
     for number, line in enumerate(lines, start=1):
         match = _HEADING.match(line)
-        if match is None:
+        heading = "" if match is None else match.group(2).strip()
+        if not heading:
+            # A heading marker over nothing but spacing (a filing's
+            # ``## \xa0``) names no section: it stays a body line.
             body.append(line)
             continue
         flush(number - 1)
         level = len(match.group(1))
-        heading = match.group(2).strip()
         headings = headings[: level - 1]
         headings.append(heading)
         current_heading = heading
