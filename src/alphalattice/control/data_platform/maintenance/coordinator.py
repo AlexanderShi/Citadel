@@ -1884,9 +1884,16 @@ class WorkspaceMaintenanceCoordinator:
         return stop(None) if admitted is None else admitted
 
     def _granted_full_audits(self, request: WorkspaceMaintenanceRequest) -> tuple[str, ...]:
-        """The request's full-history audits and those admitted onto this cycle after a stop."""
+        """The request's full-history audits and those admitted onto this cycle after a stop.
+
+        A supplement names a listing of the membership the cycle held when it stopped. When the
+        cycle has since excluded that listing from its working membership (a Sector partial
+        exclusion), the audit is no longer owed: it is left out, never refused as foreign.
+        """
         supplement = self.registry.audit_supplement(self._cycle_id) if self._cycle_id else ()
-        return tuple(sorted({*request.full_history_listing_ids, *supplement}))
+        members = {item.listing_id for item in self.manifest.listings}
+        owed = (listing for listing in supplement if listing in members)
+        return tuple(sorted({*request.full_history_listing_ids, *owed}))
 
     def _authorized_full_audit_listing_ids(
         self, request: WorkspaceMaintenanceRequest
