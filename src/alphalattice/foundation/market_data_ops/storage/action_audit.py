@@ -257,6 +257,30 @@ def _adjustment(
     return (written, disclosed, largest) if written else None
 
 
+def _rescales_before_scope(
+    prior: Mapping[date, float],
+    observed: Mapping[date, float],
+    tolerance: float,
+    actions: set[date],
+) -> bool:
+    """Whether a refresh re-sends a back-adjustment that reaches the stored closes before it.
+
+    A provider re-sends a back-adjusted series after a new dividend or split: every close before
+    the action moves by one factor. Within a rolling scope that shows as its first re-sent close
+    moving, with an action after it, and the stored closes before the scope would move with it.
+    `_adjustment` names this only inside a positive precision; at zero (no Goal's rule, or a
+    corrected raw bar) the rolling merge would otherwise keep the old closes before the scope and
+    write a seam at its start. A re-rounding with no action after it restates the window as before.
+    """
+    common = sorted(prior.keys() & observed.keys())
+    if not common or not any(session < common[0] for session in prior):
+        return False
+    first = common[0]
+    if not any(action > first for action in actions):
+        return False
+    return abs(observed[first] / prior[first] - 1.0) > max(1e-12, tolerance)
+
+
 def standing(
     prior: Mapping[date, float],
     observed: dict[date, float],
@@ -271,7 +295,8 @@ def standing(
     A stored close observed again within the data rule's precision stands: a later observation
     does not rewrite a published session, so only the new sessions are written then. A
     back-adjustment is kept in the adjustment-factor form (`_adjustment`) by a full refresh;
-    a rolling one cannot rescale the closes before its scope, so it asks for the full history.
+    a rolling one cannot rescale the closes before its scope, so it asks for the full history,
+    at any precision (`_rescales_before_scope`).
     Otherwise a full refresh (`replaces`) leaves its own series and a rolling one the stored one
     updated. The disclosure carries `PRECISION_KEPT` and any `ADJUSTMENT_SEGMENTS`.
     """
@@ -279,8 +304,10 @@ def standing(
     kept = _within_precision(prior, observed, tolerance)
     if kept is not None:
         return new, {**prior, **new}, {PRECISION_KEPT: kept}
-    form = _adjustment(prior, observed, tolerance, set(actions))
-    if form is not None and not replaces:
+    action_sessions = set(actions)
+    form = _adjustment(prior, observed, tolerance, action_sessions)
+    reaches = _rescales_before_scope(prior, observed, tolerance, action_sessions)
+    if not replaces and (form is not None or reaches):
         raise ActionAuditScopeInsufficient("a back-adjustment reaches before the rolling scope")
     if form is not None:
         written = {**form[0], **new}
