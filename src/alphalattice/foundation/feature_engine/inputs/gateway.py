@@ -1564,13 +1564,27 @@ class FeatureInputRemediationExecutor:
         )
         if action is RemediationAction.RETAIN_RAW_VALUE_WITH_CAVEAT and human_confirmed:
             selected = tuple(evidence_by_listing_id[key] for key in option.target_listing_ids)
-            if not proposal_hash or any(
+            if not proposal_hash:
+                raise ValueError("feature_input.raw_caveat_requires_isolated_verified_move")
+            if any(
                 item.reason_codes != ("UNEXPLAINED_RAW_MOVE",)
                 or not item.extreme_move_unexplained
                 or not item.identity_verified
                 for item in selected
             ):
-                raise ValueError("feature_input.raw_caveat_requires_isolated_verified_move")
+                # The confirmed option cannot apply to this evidence (an adjusted-close
+                # mismatch, say). Its refusal is the decision's effect, as a blocked
+                # quarantine's is: recorded, it hands the case back for another choice,
+                # which archives this one. Raised, it left the receipt with no effect,
+                # every rerun refused again and every other choice conflicted with it.
+                return FeatureInputPolicyExecution(
+                    status=FeatureInputExecutionStatus.DEFERRED,
+                    option_id=option.option_id,
+                    option_hash=option.option_hash,
+                    policy_args_hash=policy_args_hash,
+                    execution_receipt_hash=receipt,
+                    failure_reasons=("RAW_CAVEAT_REQUIRES_ISOLATED_VERIFIED_MOVE",),
+                )
             return FeatureInputPolicyExecution(
                 status=FeatureInputExecutionStatus.RAW_VALUE_RETAINED,
                 option_id=option.option_id,
